@@ -12,14 +12,17 @@ nozzleCases  = ["mixed","separate"];    % x1
 coolingCases = ["film","effusion"];     % x2
 
 % Continuous variables (k = 11)
-varNames = ["BPR","FPR","LPR","HPR","Tt4","eta_pc","eta_pt","porosity","Cd","alpha","tTBC"];
+% NOTE: eta_pc and eta_pt are no longer independent DOE inputs.
+% They are computed inside evaluate_engine_model_proxy as coupled functions of
+% cycle + cooling state, while SMc and kSt are independent knobs.
+varNames = ["BPR","FPR","LPR","HPR","Tt4","SMc","kSt","porosity","Cd","alpha","tTBC"];
 
 % Units (for tables)
-varUnits = ["-","-","-","-","K","-","-","-","-","deg","um"];
+varUnits = ["-","-","-","-","K","%","-","-","-","deg","um"];
 
 % Bounds (keep yours; I recommend FPR min >= 1.30 for feasibility)
-lb = [ 4.0, 1.30, 1.20,  8.0, 1250, 0.86, 0.88, 0.002, 0.60, 20, 100 ];
-ub = [12.0, 1.90, 3.00, 30.0, 1900, 0.92, 0.94, 0.020, 0.95, 90, 400 ];
+lb = [ 4.0, 1.30, 1.20,  8.0, 1250, 0.05, 0.70, 0.002, 0.60, 20, 100 ];
+ub = [12.0, 1.90, 3.00, 30.0, 1900, 0.25, 1.50, 0.020, 0.95, 90, 400 ];
 
 % Derived feasibility constraint for OPR = LPR*HPR
 OPR_min = 20;
