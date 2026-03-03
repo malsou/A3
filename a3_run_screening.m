@@ -44,10 +44,34 @@ baselineCooling = "film";
 N_cat_compare = 10;
 
 %% ----- Generate Morris design in normalized space -----
-Xn_all = morris_design(k,p,r);  % size N x k, N = r*(k+1)
-
-% Denormalize helper
+% Keep only trajectories that satisfy OPR constraints at all trajectory points
+% to preserve valid one-factor-at-a-time Morris steps.
 denorm = @(Xn) denormalize_minmax(Xn, lb, ub);
+iL = find(varNames=="LPR",1);
+iH = find(varNames=="HPR",1);
+
+Xn_all = zeros(r*(k+1), k);
+trajAccepted = 0;
+trajAttempts = 0;
+maxTrajAttempts = 5000;
+
+while trajAccepted < r && trajAttempts < maxTrajAttempts
+    trajAttempts = trajAttempts + 1;
+    Xt = morris_design(k,p,1);               % one trajectory: (k+1) x k
+    Xraw_t = denorm(Xt);
+    opr_t = Xraw_t(:,iL) .* Xraw_t(:,iH);
+
+    if all(opr_t >= OPR_min & opr_t <= OPR_max)
+        rowStart = trajAccepted*(k+1) + 1;
+        Xn_all(rowStart:rowStart+k, :) = Xt;
+        trajAccepted = trajAccepted + 1;
+    end
+end
+
+if trajAccepted < r
+    error("Could not generate %d feasible Morris trajectories in %d attempts.", r, maxTrajAttempts);
+end
+fprintf("Accepted %d/%d feasible Morris trajectories after %d attempts.\n", r, r, trajAttempts);
 
 %% ----- Run screening -----
 results = struct;
@@ -72,10 +96,6 @@ for ci = 1:size(caseList,1)
 
     Xraw = denorm(Xn_all);
 
-    % Apply feasibility handling for OPR range:
-    % Here: resample rows that violate OPR by randomizing LPR/HPR within bounds.
-    Xraw = enforce_opr_bounds(Xraw, varNames, lb, ub, OPR_min, OPR_max);
-
     % Evaluate
     N = size(Xraw,1);
     Y = zeros(N,4); % [TSFC_cruise, phi_crit, MT_worst, MF_worst]
@@ -94,9 +114,8 @@ for ci = 1:size(caseList,1)
     end
 
     % Save dataset CSV
-    T = array2table([Xraw, Y, runtime], ...
-        "VariableNames", [cellstr(varNames), ...
-        "TSFC_cruise","phi_crit","MT_worst","MF_worst","runtime_s"]);
+    dataVarNames = [varNames, "TSFC_cruise","phi_crit","MT_worst","MF_worst","runtime_s"];
+    T = array2table([Xraw, Y, runtime], "VariableNames", cellstr(dataVarNames));
     writetable(T, fullfile(outDir, "screening_dataset_" + caseTag + ".csv"));
 
     % Morris analysis (elementary effects)
@@ -136,23 +155,36 @@ if DO_BASELINE_ONLY
     Xraw_cat = denorm(Xn_cat);
     Xraw_cat = enforce_opr_bounds(Xraw_cat, varNames, lb, ub, OPR_min, OPR_max);
 
-    catRows = [];
+    nCatRows = numel(nozzleCases) * numel(coolingCases) * N_cat_compare;
+    nozzleCol = strings(nCatRows,1);
+    coolingCol = strings(nCatRows,1);
+    Xcat = zeros(nCatRows, k);
+    Ycat = zeros(nCatRows, 4);
+
+    rr = 0;
     for a = 1:numel(nozzleCases)
         for b = 1:numel(coolingCases)
-            nozzle = nozzleCases(a); cooling = coolingCases(b);
+            nozzle = nozzleCases(a);
+            cooling = coolingCases(b);
             for i = 1:N_cat_compare
+                rr = rr + 1;
                 x = row_to_struct(Xraw_cat(i,:), varNames);
-                x.nozzle = nozzle; x.cooling = cooling;
+                x.nozzle = nozzle;
+                x.cooling = cooling;
                 y = evaluate_engine_model_proxy(x);
-                catRows = [catRows; ...
-                    string(nozzle), string(cooling), Xraw_cat(i,:), ...
-                    y.TSFC_cruise, y.phi_crit, y.MT_worst, y.MF_worst]; %#ok<AGROW>
+
+                nozzleCol(rr) = nozzle;
+                coolingCol(rr) = cooling;
+                Xcat(rr,:) = Xraw_cat(i,:);
+                Ycat(rr,:) = [y.TSFC_cruise, y.phi_crit, y.MT_worst, y.MF_worst];
             end
         end
     end
 
-    catVarNames = ["nozzle","cooling", varNames, "TSFC_cruise","phi_crit","MT_worst","MF_worst"];
-    Tcat = array2table(catRows, "VariableNames", cellstr(catVarNames));
+    Tcat = table(nozzleCol, coolingCol, 'VariableNames', {'nozzle','cooling'});
+    Tcont = array2table(Xcat, 'VariableNames', cellstr(varNames));
+    Tout = array2table(Ycat, 'VariableNames', {'TSFC_cruise','phi_crit','MT_worst','MF_worst'});
+    Tcat = [Tcat, Tcont, Tout];
     writetable(Tcat, fullfile(outDir, "categorical_compare.csv"));
 end
 
