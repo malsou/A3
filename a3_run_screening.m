@@ -82,7 +82,7 @@ if DO_BASELINE_ONLY
 else
     for a = 1:numel(nozzleCases)
         for b = 1:numel(coolingCases)
-            caseList(end+1,:) = {nozzleCases(a), coolingCases(b)}; %#ok<SAGROW>
+            caseList(end+1,:) = {nozzleCases(a), coolingCases(b)}; 
         end
     end
 end
