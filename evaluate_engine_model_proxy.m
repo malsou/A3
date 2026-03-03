@@ -1,13 +1,22 @@
 function y = evaluate_engine_model_proxy(x)
 % Proxy coupled cycle + cooling model.
 % Inputs x: struct with fields:
-% BPR,FPR,LPR,HPR,Tt4,eta_pc,eta_pt,porosity,Cd,alpha,tTBC,nozzle,cooling
+% BPR,FPR,LPR,HPR,Tt4,SMc,kSt,porosity,Cd,alpha,tTBC,nozzle,cooling
 
 % ---- Operating points (edit as desired) ----
 pts = operating_points();
 
 % ---- Derived quantities ----
 OPR = x.LPR * x.HPR;
+
+% ---- Coupled component efficiencies ----
+% Rationale: compressor/turbine efficiency are not independent DOE knobs.
+% They vary with cycle pressure ratio and cooling demand to preserve coupling.
+% Compressor map-coupling constants (chosen to keep eta_pc in realistic range):
+% eta_pc = eta_pc_peak - a*(log(OPR/OPR0))^2 - b*(SMc-SMc0)^2, clamped [0.80, 0.92]
+eta_pc_peak = 0.91; OPR0 = 35; SMc0 = 0.15; a = 0.090; b = 1.80;
+eta_pc = eta_pc_peak - a*(log(OPR/OPR0))^2 - b*(x.SMc-SMc0)^2;
+eta_pc = min(max(eta_pc, 0.80), 0.92);
 
 % ---- Categorical multipliers ----
 isMixed = strcmpi(x.nozzle, "mixed");
@@ -32,8 +41,7 @@ mdot_core = max(mdot_core, 50); % avoid absurdly small flow
 % Efficiency proxies (bounded)
 eta_th = 0.30 ...
     + 0.08*log(OPR)/log(40) ...
-    + 0.06*((x.eta_pc - 0.89)/0.03) ...
-    + 0.06*((x.eta_pt - 0.91)/0.03);
+    + 0.06*((eta_pc - 0.89)/0.03);
 eta_th = min(max(eta_th, 0.20), 0.55);
 
 eta_p = 0.55 ...
@@ -50,8 +58,13 @@ Fnet = zeros(numel(pts),1);
 for i = 1:numel(pts)
     lapse = thrust_lapse(pts(i).h_m, pts(i).M);
 
-    % Cooling proxy -> phi and Tmax
+    % Cooling proxy -> phi and Tmax (kSt scales heat-transfer effectiveness)
     [phi(i), Tmax(i)] = cooling_proxy(x, OPR, pts(i), coolFactor_eff);
+
+    % Turbine efficiency is coupled to cooling requirement (higher phi -> lower eta_pt).
+    c = 1.4; eta_pt_peak = 0.94;
+    eta_pt = eta_pt_peak - c*phi(i);
+    eta_pt = min(max(eta_pt, 0.82), 0.94);
 
     % Cooling penalties: bleed reduces thrust, mixing increases TSFC
     bleedFactor = 1 - 2.0*phi(i);                % simple bleed penalty
@@ -62,7 +75,7 @@ for i = 1:numel(pts)
     Fnet(i) = mdot_core * ST * lapse * bleedFactor;
 
     % TSFC proxy (relative scale; consistent across samples)
-    TSFC(i) = (1.0/(eta_th*eta_p)) ...
+    TSFC(i) = (1.0/(eta_th*eta_p)) * (0.93/eta_pt) ...
         * (1 + 0.10*((x.Tt4 - 1500)/300)) ...
         * nozFactor_TSFC ...
         * mixPenalty;
@@ -111,6 +124,7 @@ end
 function [phi, Tmax] = cooling_proxy(x, OPR, pt, eff_bonus)
 % Correlation-ish proxy:
 % phi increases with Tt4 and OPR; decreases with porosity/Cd/tTBC/angle.
+% kSt multiplies convective transfer/effectiveness (higher kSt -> lower phi/Tmax).
 Tt4 = x.Tt4;
 
 por = x.porosity;                       % 0.002-0.020
@@ -121,6 +135,7 @@ tN   = (x.tTBC - 100)/(400-100);        % 0-1
 
 % Effectiveness proxy (0.2 to 0.9)
 eff = 0.35 + 0.25*porN + 0.15*CdN + 0.10*angN + 0.15*tN + eff_bonus;
+eff = eff .* x.kSt;
 eff = min(max(eff, 0.20), 0.90);
 
 % Thermal load proxy
