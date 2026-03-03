@@ -134,7 +134,7 @@ for ci = 1:size(caseList,1)
     keep = suggest_keep_vars(mor.mu_star, mor.sigma, varNames);
 
     % Save ranking table
-    R = table(varNames', mor.mu_star(:,1), mor.sigma(:,1), mor.mu_star(:,3), mor.sigma(:,3), keep', ...
+    R = table(varNames', mor.mu_star(:,1), mor.sigma(:,1), mor.mu_star(:,3), mor.sigma(:,3), keep, ...
         'VariableNames', ["Variable","mu_TSFC","sigma_TSFC","mu_MT","sigma_MT","Keep"]);
     writetable(R, fullfile(outDir, "screening_rank_" + caseTag + ".csv"));
 
