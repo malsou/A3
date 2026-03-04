@@ -39,6 +39,9 @@ for t = 1:r
         end
 
         ee = (Yt(step+1,:) - Yt(step,:)) / stepSize;
+        tinyImag = abs(imag(ee)) <= 1e-12;
+        ee(~tinyImag) = NaN;
+        ee(tinyImag) = real(ee(tinyImag));
         ee(~isfinite(ee)) = NaN;  % robust handling of failed model calls
         EE(t,j,:) = ee;
     end

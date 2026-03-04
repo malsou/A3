@@ -30,16 +30,27 @@ Tmax = zeros(n,1);
 Fspec = zeros(n,1);
 TSFC = zeros(n,1);
 Fnet = zeros(n,1);
+phiSatHi = false(n,1);
+phiSatLo = false(n,1);
+invalidCount = 0;
+solverPenalty = opts.P_solver;
 
 for i = 1:n
     atm = atmos_isa(op(i).alt_ft);
     [phi(i), Tmax(i)] = cooling_requirement(des, OPR, atm, op(i).M0, coolEffBonus, opts);
+    phiSatHi(i) = abs(phi(i) - opts.phi_bounds(2)) <= 1e-12;
+    phiSatLo(i) = abs(phi(i) - opts.phi_bounds(1)) <= 1e-12;
 
     % Coupled turbine efficiency from coolant fraction
     eta_pt = opts.eta_t_uncooled - opts.eta_pt_penalty_c * phi(i);
     eta_pt = clamp(eta_pt, opts.eta_pt_bounds(1), opts.eta_pt_bounds(2));
 
     cyc = run_cycle_point(des, atm, op(i).M0, eta_pc, eta_pt, phi(i), opts);
+
+    if ~cyc.valid
+        invalidCount = invalidCount + 1;
+        solverPenalty = max(solverPenalty, 1);
+    end
 
     Fspec(i) = cyc.Fspec_net; % N per (kg/s core)
     TSFC(i) = cyc.TSFC * nozFactor_TSFC;
@@ -60,9 +71,25 @@ y.TSFC_cruise = TSFC(end);
 y.phi_crit = max(phi);
 y.MT_worst = min(MT);
 y.MF_worst = min(MF);
+y.phi_sat_hi_frac = mean(phiSatHi);
+y.phi_sat_lo_frac = mean(phiSatLo);
+y.invalid_frac = invalidCount / max(n,1);
+y.P_solver = solverPenalty;
 
 y.J = opts.J_weights(1)*TSFC(end) + opts.J_weights(2)*TSFC(max(1,n-1));
-y.P = max(0,-y.MF_worst) + opts.beta*max(0,-y.MT_worst/opts.Tscale) + opts.gamma*opts.P_solver;
+y.P = max(0,-y.MF_worst) + opts.beta*max(0,-y.MT_worst/opts.Tscale) + opts.gamma*y.P_solver;
+
+if (~isreal(y.TSFC_cruise) || ~isreal(y.phi_crit) || ~isreal(y.MT_worst) || ~isreal(y.MF_worst) || ...
+        ~isreal(y.J) || ~isreal(y.P) || any(~isfinite([y.TSFC_cruise y.phi_crit y.MT_worst y.MF_worst y.J y.P])))
+    y.TSFC_cruise = 1e-3;
+    y.phi_crit = opts.phi_bounds(2);
+    y.MT_worst = -1e3;
+    y.MF_worst = -1;
+    y.P_solver = 1;
+    y.invalid_frac = 1;
+    y.J = y.TSFC_cruise;
+    y.P = max(0,-y.MF_worst) + opts.beta*max(0,-y.MT_worst/opts.Tscale) + opts.gamma*y.P_solver;
+end
 end
 
 function cyc = run_cycle_point(des, atm, M0, eta_pc, eta_pt, phi, opts)
@@ -109,6 +136,13 @@ m4 = m31*(1+f);
 % HPT drives compressor
 Tt49a = des.Tt4 - Wcomp/(m4*cph);
 Tt49i = des.Tt4 - (des.Tt4 - Tt49a)/eta_pt;
+
+Tmin = 200;
+if (Tt49a <= Tmin) || (Tt49i <= Tmin)
+    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt3,'valid',false);
+    return;
+end
+
 Pt49 = Pt4*(Tt49i/des.Tt4)^(gh/(gh-1));
 
 % Cooling mix 4.9 + cool -> 4.95
@@ -121,6 +155,10 @@ Pt495 = Pt49;
 % LPT drives fan
 Tt50a = Tt495 - Wfan/(m495*cph);
 Tt50i = Tt495 - (Tt495 - Tt50a)/eta_pt;
+if (Tt50a <= Tmin) || (Tt50i <= Tmin)
+    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt495,'valid',false);
+    return;
+end
 Pt50 = Pt495*(Tt50i/Tt495)^(gh/(gh-1));
 
 % Nozzles with choke-check + fully expanded exit (pe=Pa)
@@ -135,8 +173,11 @@ Fspec = max(Fspec, 1e-6);
 
 mf_over_m2 = f*m31;
 TSFC = mf_over_m2 / Fspec; % kg/(N-s)
-
-cyc = struct('Fspec_net',Fspec,'TSFC',TSFC,'Tt3',Tt3,'Tt495',Tt495);
+if ~isreal(Fspec) || ~isreal(TSFC) || ~isfinite(Fspec) || ~isfinite(TSFC)
+    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt495,'valid',false);
+else
+    cyc = struct('Fspec_net',real(Fspec),'TSFC',real(TSFC),'Tt3',Tt3,'Tt495',Tt495,'valid',true);
+end
 end
 
 function V = nozzle_velocity(Pt, Tt, Pa, gamma, cp, Cv)
@@ -168,11 +209,11 @@ hScale = des.kSt * (1 + 0.25*((OPR-20)/35) + 0.05*M0);
 hScale = max(hScale, 0.4);
 
 phi_req = (Tg - opts.T_allow - 0.35*(des.tTBC - 100)) ...
-    /(950*(0.6 + 0.4*eta_film)*hScale);
+    /(opts.phi_scale*(0.6 + 0.4*eta_film)*hScale);
 phi = clamp(phi_req + 0.003, opts.phi_bounds(1), opts.phi_bounds(2));
 
 Tmax = 980 + 0.55*(des.Tt4 - 1450) ...
-    - 950*phi*(0.6 + 0.4*eta_film)*hScale ...
+    - opts.phi_scale*phi*(0.6 + 0.4*eta_film)*hScale ...
     - 0.35*(des.tTBC - 100);
 Tmax = clamp(Tmax, opts.Tmetal_floor, opts.Tmetal_ceil);
 end
