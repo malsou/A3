@@ -87,6 +87,8 @@ for si = 1:numel(scenarios)
     N = size(Xraw,1);
     Y = zeros(N,4); % [TSFC_cruise, phi_crit, MT_worst, MF_worst]
     runtime = zeros(N,1);
+    phiSatHiFrac = zeros(N,1);
+    invalidFrac = zeros(N,1);
 
     for i = 1:N
         x = row_to_struct(Xraw(i,:), varNames);
@@ -99,6 +101,8 @@ for si = 1:numel(scenarios)
 
         % Keep responses continuous (no pass/fail binning).
         Y(i,:) = [y.TSFC_cruise, y.phi_crit, y.MT_worst, y.MF_worst];
+        phiSatHiFrac(i) = y.phi_sat_hi_frac;
+        invalidFrac(i) = y.invalid_frac;
     end
 
     dataVarNames = [varNames, "TSFC_cruise","phi_crit","MT_worst","MF_worst","runtime_s"];
@@ -134,6 +138,8 @@ for si = 1:numel(scenarios)
         'n_keep_pareto80', sum(keep));
 
     fprintf("Avg runtime per eval: %.4f s (N=%d)\n", mean(runtime), N);
+    fprintf("Avg phi saturation high fraction: %.3f\n", mean(phiSatHiFrac));
+    fprintf("Avg invalid operating-point fraction: %.3f\n", mean(invalidFrac));
     disp(R);
 
     results.(caseTag).dataset = T;
