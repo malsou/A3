@@ -1,47 +1,57 @@
 function opts = engine_defaults(overrides)
-%ENGINE_DEFAULTS Fixed assumptions for eval_engine.
+%ENGINE_DEFAULTS Fixed assumptions and constants for eval_engine.
 
 opts = struct;
 
-% Coupled compressor efficiency model constants
-opts.eta_pc_peak = 0.91;
+% Gas / fuel
+opts.gamma_cold = 1.40;
+opts.gamma_hot = 1.3333;
+opts.cp_cold = 1004.5;          % J/(kg-K)
+opts.cp_hot = 1150.0;           % J/(kg-K)
+opts.R = 287.05287;             % J/(kg-K)
+opts.FHV = 43.1e6;              % J/kg
+
+% Component models
+opts.eta_r = 0.99;              % inlet pressure recovery
+opts.eta_fan = 0.88;
+opts.eta_comp_peak = 0.90;      % baseline for coupled eta_pc
+opts.eta_b = 0.995;
+opts.dPt_comb = 0.05;           % combustor pressure-loss fraction
+
+% Coupled compressor efficiency model
 opts.OPR0 = 35;
 opts.SMc0 = 0.15;
 opts.eta_pc_a = 0.090;
 opts.eta_pc_b = 1.80;
-opts.eta_pc_bounds = [0.80, 0.92];
+opts.eta_pc_bounds = [0.82, 0.91];
 opts.SMc = 0.15;
 
-% Turbine efficiency coupling
-opts.eta_pt_peak = 0.94;
-opts.eta_pt_penalty_c = 1.4;
-opts.eta_pt_bounds = [0.82, 0.94];
+% Turbine model
+opts.eta_t_uncooled = 0.93;
+opts.eta_pt_penalty_c = 1.4;    % eta_pt = eta_t_uncooled - c*phi
+opts.eta_pt_bounds = [0.84, 0.94];
 
-% Nozzle/cooling categorical modifiers
-opts.nozFactorMixed = -0.015;   % mixed nozzle TSFC benefit
-opts.coolEffEffusion = 0.08;    % effusion effectiveness bonus
+% Bleeds / cooling baseline fractions (of core flow)
+opts.fr_bleed = 0.03;
+opts.fr_leak = 0.01;
+opts.fr_cool_base = 0.02;
 
-% Cycle proxy constants
-opts.ST_base = 240;
-opts.ST_Tt4_gain = 120/300;
-opts.ST_BPR_gain = -28/4;
-opts.ST_OPR_gain = -18/15;
-opts.ST_min = 80;
-opts.mdot_core_min = 50;
+% Nozzle velocity coefficients
+opts.Cv19 = 0.985;
+opts.Cv9 = 0.983;
 
-opts.eta_th_bounds = [0.20, 0.55];
-opts.eta_p_bounds = [0.40, 0.80];
-
-% Cooling / thermal model constants (in spirit of course cooling notes)
+% Cooling constants
 opts.Cd = 0.80;
-opts.alpha = 45;                % deg, injection angle proxy
+opts.alpha = 45;                % deg
 opts.T_allow = 1100;            % K
-opts.Tmetal_floor = 750;
-opts.Tmetal_ceil = 1400;
-opts.phi_bounds = [0.0, 0.08];
+opts.phi_bounds = [0.0, 0.10];
+opts.Tmetal_floor = 700;
+opts.Tmetal_ceil = 1500;
+opts.coolEffEffusion = 0.08;
+opts.nozFactorMixed = -0.010;
 
-% Margin / objective constants
-opts.J_weights = [0.75, 0.25];  % [cruise, climb]
+% Objective / penalty
+opts.J_weights = [0.75, 0.25];
 opts.Tscale = 100;
 opts.beta = 1.0;
 opts.gamma = 10.0;
