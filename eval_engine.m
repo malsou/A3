@@ -41,12 +41,14 @@ Tclamped = false(n,1);
 invalidOp = false(n,1);
 invalidMargin = zeros(n,1);
 TclampPen = zeros(n,1);
+solverPenalty = opts.P_solver;
 
 for i = 1:n
     atm = atmos_isa(op(i).alt_ft);
     [phi(i), Tmax(i)] = cooling_requirement(des, OPR, atm, op(i).M0, coolEffBonus, opts);
     phiSatHi(i) = abs(phi(i) - opts.phi_bounds(2)) <= 1e-12;
     phiSatLo(i) = abs(phi(i) - opts.phi_bounds(1)) <= 1e-12;
+    Tclamped(i) = (Tmax(i) <= opts.Tmetal_floor + eps) || (Tmax(i) >= opts.Tmetal_ceil - eps);
 
     if ~isfinite(Tmax(i)) || ~isreal(Tmax(i))
         Tmax(i) = opts.T_allow + opts.MT_bad;
@@ -66,8 +68,11 @@ for i = 1:n
 
     Fspec(i) = max(cyc.Fspec_net, 1e-6); % N per (kg/s core)
     if ~cyc.valid
+        solverPenalty = max(solverPenalty, 1);
         TSFC(i) = opts.TSFC_bad;
+        Tmax(i) = opts.T_allow + opts.MT_bad;
         invalidOp(i) = true;
+        Fspec(i) = cyc.Fspec_net;
         continue;
     end
 
@@ -75,6 +80,8 @@ for i = 1:n
     invalidOp(i) = ~isfinite(TSFC(i)) || ~isfinite(Tmax(i)) || (Fspec(i) <= 0);
     if invalidOp(i)
         TSFC(i) = opts.TSFC_bad;
+        Tmax(i) = opts.T_allow + opts.MT_bad;
+        Fspec(i) = max(Fspec(i), 1e-6);
     end
 end
 
@@ -98,7 +105,7 @@ y.T_clamp_pen = max(TclampPen);
 y.phi_sat_hi_frac = mean(phiSatHi);
 y.phi_sat_lo_frac = mean(phiSatLo);
 y.invalid_frac = mean(invalidOp);
-y.P_solver = opts.invalid_pen_scale * max(0, -y.invalid_margin_worst / max(opts.Tmin_cycle, eps));
+y.P_solver = solverPenalty;
 y.diag.phi_hi = mean(phi >= opts.phi_bounds(2) - 1e-9);
 y.diag.phi_lo = mean(phi <= opts.phi_bounds(1) + 1e-9);
 y.diag.T_clamped = mean(Tclamped);
