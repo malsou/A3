@@ -71,7 +71,8 @@ end
 
 %% ----- Run Morris per categorical scenario -----
 results = struct;
-summaryRows = table();
+summaryRows = struct('scenario',{}, 'top_TSFC_mu_star',{}, 'top_MT_mu_star',{}, ...
+    'avg_runtime_s',{}, 'n_keep_pareto80',{});
 
 for si = 1:numel(scenarios)
     nozzle = scenarios(si).nozzle;
@@ -126,9 +127,11 @@ for si = 1:numel(scenarios)
     % Aggregate summary row: top variables and runtime
     [~, idxTSFC] = max(mor.mu_star(:,1));
     [~, idxMT] = max(mor.mu_star(:,3));
-    summaryRows = [summaryRows; table(caseTag, string(varNames(idxTSFC)), string(varNames(idxMT)), ...
-                    mean(runtime), sum(keep), ...
-                    'VariableNames', {"scenario","top_TSFC_mu_star","top_MT_mu_star","avg_runtime_s","n_keep_pareto80"})]; %#ok<AGROW>
+    summaryRows(end+1) = struct('scenario', char(caseTag), ...
+        'top_TSFC_mu_star', char(varNames(idxTSFC)), ...
+        'top_MT_mu_star', char(varNames(idxMT)), ...
+        'avg_runtime_s', mean(runtime), ...
+        'n_keep_pareto80', sum(keep));
 
     fprintf("Avg runtime per eval: %.4f s (N=%d)\n", mean(runtime), N);
     disp(R);
@@ -140,7 +143,8 @@ for si = 1:numel(scenarios)
 end
 
 % Aggregate comparison across categorical scenarios
-writetable(summaryRows, fullfile(outDir, "screening_rank_summary_across_scenarios.csv"));
+summaryTable = struct2table(summaryRows);
+writetable(summaryTable, fullfile(outDir, "screening_rank_summary_across_scenarios.csv"));
 
 %% ----- Export normalization example table (~5 rows from same samples) -----
 nEx = min(5, size(Xn_all,1));
