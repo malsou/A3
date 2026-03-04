@@ -1,30 +1,10 @@
 function y = evaluate_engine_model_proxy(x)
 % Proxy wrapper for A3 screening.
-% Maps legacy A3 design vector into eval_engine(des, op, opts).
+% Thin wrapper around eval_engine(des, op, opts) to avoid duplicate physics.
 
-% ---- Operating points (SLS / climb / cruise) ----
 op = operating_points();
-
-% ---- Design struct for eval_engine ----
-des = struct;
-des.BPR = x.BPR;
-des.FPR = x.FPR;
-des.LPR = x.LPR;
-des.HPR = x.HPR;
-des.Tt4 = x.Tt4;
-des.nozzle = x.nozzle;
-des.cooling = x.cooling;
-des.porosity = x.porosity;
-des.tTBC = x.tTBC;
-des.kSt = x.kSt;
-
-% ---- Fixed assumptions / coupled-model constants ----
 opts = engine_defaults();
-opts.SMc = x.SMc;
-if isfield(x,'Cd'); opts.Cd = x.Cd; end
-if isfield(x,'alpha'); opts.alpha = x.alpha; end
-
-y = eval_engine(des, op, opts);
+y = eval_engine(x, op, opts);
 end
 
 function op = operating_points()

@@ -24,7 +24,7 @@ opts.SMc0 = 0.15;
 opts.eta_pc_a = 0.090;
 opts.eta_pc_b = 1.80;
 opts.eta_pc_bounds = [0.82, 0.91];
-opts.SMc = 0.15;
+opts.SMc = 0.15;              % fallback if des.SMc is not provided
 
 % Turbine model
 opts.eta_t_uncooled = 0.93;
@@ -40,9 +40,9 @@ opts.fr_cool_base = 0.02;
 opts.Cv19 = 0.985;
 opts.Cv9 = 0.983;
 
-% Cooling constants
-opts.Cd = 0.80;
-opts.alpha = 45;                % deg
+% Cooling constants (floor/ceil retained for reporting + soft penalties; no hard clamp)
+opts.Cd = 0.80;               % fallback if des.Cd is not provided
+opts.alpha = 45;                % deg, fallback if des.alpha is not provided
 opts.T_allow = 1100;            % K
 opts.phi_bounds = [0.0, 0.20];
 opts.phi_scale = 6000;          % cooling scaling for phi_req and Tmax coupling
@@ -57,6 +57,11 @@ opts.Tscale = 100;
 opts.beta = 1.0;
 opts.gamma = 10.0;
 opts.P_solver = 0;
+opts.TSFC_bad = 1e-3;          % penalty TSFC for invalid points
+opts.MT_bad = 1e3;              % penalty overshoot above T_allow [K]
+opts.invalid_pen_scale = 1.0;   % scaling for continuous solver-invalid penalty
+opts.Tmin_cycle = 200;          % minimum physically-valid turbine temperature [K]
+opts.T_clamp_bad = 1e3;         % large penalty when Tmax is non-finite
 
 if nargin >= 1 && ~isempty(overrides)
     f = fieldnames(overrides);
