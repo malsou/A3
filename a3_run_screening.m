@@ -60,6 +60,9 @@ fprintf("Accepted %d/%d feasible trajectories after %d attempts.\n", r, r, trajA
 
 Xraw = denorm(Xn_all);
 
+op = operating_points();
+opts = engine_defaults();
+
 %% ----- Scenario list for categorical factors -----
 scenarios = struct('nozzle',{},'cooling',{},'tag',{});
 for a = 1:numel(nozzleCases)
@@ -89,6 +92,10 @@ for si = 1:numel(scenarios)
     runtime = zeros(N,1);
     phiSatHiFrac = zeros(N,1);
     invalidFrac = zeros(N,1);
+    diagPhiHi = zeros(N,1);
+    diagPhiLo = zeros(N,1);
+    diagTclamped = zeros(N,1);
+    diagInvalidOp = zeros(N,1);
 
     for i = 1:N
         x = row_to_struct(Xraw(i,:), varNames);
@@ -96,13 +103,17 @@ for si = 1:numel(scenarios)
         x.cooling = cooling;
 
         t0 = tic;
-        y = evaluate_engine_model_proxy(x);
+        y = eval_engine(x, op, opts);
         runtime(i) = toc(t0);
 
         % Keep responses continuous (no pass/fail binning).
         Y(i,:) = [y.TSFC_cruise, y.phi_crit, y.MT_worst, y.MF_worst];
         phiSatHiFrac(i) = y.phi_sat_hi_frac;
         invalidFrac(i) = y.invalid_frac;
+        diagPhiHi(i) = y.diag.phi_hi;
+        diagPhiLo(i) = y.diag.phi_lo;
+        diagTclamped(i) = y.diag.T_clamped;
+        diagInvalidOp(i) = y.diag.invalid_op;
     end
 
     dataVarNames = [varNames, "TSFC_cruise","phi_crit","MT_worst","MF_worst","runtime_s"];
@@ -140,6 +151,8 @@ for si = 1:numel(scenarios)
     fprintf("Avg runtime per eval: %.4f s (N=%d)\n", mean(runtime), N);
     fprintf("Avg phi saturation high fraction: %.3f\n", mean(phiSatHiFrac));
     fprintf("Avg invalid operating-point fraction: %.3f\n", mean(invalidFrac));
+    fprintf("Diagnostics avg: phi_hi=%.3f, phi_lo=%.3f, T_clamped=%.3f, invalid_op=%.3f\n", ...
+        mean(diagPhiHi), mean(diagPhiLo), mean(diagTclamped), mean(diagInvalidOp));
     disp(R);
 
     results.(caseTag).dataset = T;
@@ -173,6 +186,14 @@ s = struct;
 for j = 1:numel(varNames)
     s.(varNames(j)) = row(j);
 end
+end
+
+function op = operating_points()
+% A3 mission anchors with reduced required inputs for each operating point:
+% altitude [ft], Mach number, required net thrust [N].
+op(1).name = "SLS_takeoff"; op(1).alt_ft = 0;      op(1).M0 = 0.00; op(1).Freq = 120e3;
+op(2).name = "climb";       op(2).alt_ft = 19685;  op(2).M0 = 0.40; op(2).Freq = 60e3;
+op(3).name = "cruise";      op(3).alt_ft = 36089;  op(3).M0 = 0.78; op(3).Freq = 25e3;
 end
 
 function X = lhs_simple(n, k)
