@@ -199,3 +199,75 @@ Xn_ex = normalize_minmax(Xraw_ex, lb, ub);
 export_norm_example_tex(varNames, varUnits, Xraw_ex, lb, ub, Xn_ex, fullfile(outDir, "norm_example_table.tex"));
 
 fprintf("\nDone. Outputs in: %s\n", outDir);
+
+function X = denormalize_minmax(Xn, lb, ub)
+X = lb + Xn .* (ub - lb);
+end
+
+function Xn = normalize_minmax(X, lb, ub)
+Xn = (X - lb) ./ (ub - lb);
+end
+
+function s = row_to_struct(row, varNames)
+s = struct;
+for j = 1:numel(varNames)
+    s.(varNames(j)) = row(j);
+end
+end
+
+function X = lhs_simple(n, k)
+% Latin hypercube in [0,1] (basic)
+X = zeros(n,k);
+for j = 1:k
+    edges = linspace(0,1,n+1);
+    u = rand(n,1);
+    X(:,j) = edges(1:n)' + u.*(edges(2:n+1)'-edges(1:n)');
+    X(:,j) = X(randperm(n),j);
+end
+end
+
+function X = enforce_opr_bounds(X, varNames, lb, ub, OPR_min, OPR_max)
+% Resample LPR/HPR for rows violating OPR bounds.
+% Throws an error if a row cannot be repaired within maxTries.
+
+iL = find(varNames=="LPR",1);
+iH = find(varNames=="HPR",1);
+if isempty(iL) || isempty(iH)
+    error("LPR/HPR not found");
+end
+
+maxTries = 200;
+for i = 1:size(X,1)
+    opr = X(i,iL) * X(i,iH);
+    tries = 0;
+    while (opr < OPR_min || opr > OPR_max) && tries < maxTries
+        % resample LPR/HPR uniformly within bounds
+        X(i,iL) = lb(iL) + rand*(ub(iL)-lb(iL));
+        X(i,iH) = lb(iH) + rand*(ub(iH)-lb(iH));
+        opr = X(i,iL) * X(i,iH);
+        tries = tries + 1;
+    end
+
+    if opr < OPR_min || opr > OPR_max
+        error("Failed to enforce OPR bounds for row %d after %d retries (OPR=%.4f).", i, maxTries, opr);
+    end
+end
+end
+
+function export_norm_example_tex(varNames, varUnits, xRaw, lb, ub, xN, outTex)
+fid = fopen(outTex,'w');
+fprintf(fid,"%% Auto-generated normalization example table\n");
+fprintf(fid,"\\begin{table}[H]\n\\centering\n");
+fprintf(fid,"\\caption{Example pre- and post-normalization values (min--max).}\\label{tab:norm_example}\n");
+fprintf(fid,"\\renewcommand{\\arraystretch}{1.15}\n");
+fprintf(fid,"\\begin{tabular}{lccccc}\n\\toprule\n");
+fprintf(fid,"\\textbf{Var} & \\textbf{Units} & \\textbf{Raw} & \\textbf{Min} & \\textbf{Max} & \\textbf{Norm}\\\\\n\\midrule\n");
+
+for i = 1:numel(varNames)
+    fprintf(fid,"%s & %s & %.4g & %.4g & %.4g & %.4g\\\\\n", ...
+        varNames(i), varUnits(i), xRaw(i), lb(i), ub(i), xN(i));
+end
+
+fprintf(fid,"\\bottomrule\n\\end{tabular}\n\\end{table}\n");
+fclose(fid);
+end
