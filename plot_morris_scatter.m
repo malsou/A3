@@ -1,9 +1,12 @@
-function plot_morris_scatter(mu_star, sigma, varNames, ttl, outPng)
+function plot_morris_scatter(mu_star, sigma, varNames, ttl, outPng, xLabel)
+if nargin < 6 || strlength(string(xLabel)) == 0
+    xLabel = '\\mu^*';
+end
+
 plotScale = 1;
-xLabel = '\\mu^*';
 if max(abs(mu_star)) < 1e-8
     plotScale = 1e6;
-    xLabel = '\\mu^* (x10^{-6})';
+    xLabel = string(xLabel) + ' (x10^{-6})';
 end
 xv = mu_star * plotScale;
 

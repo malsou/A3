@@ -96,6 +96,8 @@ for si = 1:numel(scenarios)
     diagPhiLo = zeros(N,1);
     diagTclamped = zeros(N,1);
     diagInvalidOp = zeros(N,1);
+    invalidMarginWorst = zeros(N,1);
+    TclampPen = zeros(N,1);
 
     for i = 1:N
         x = row_to_struct(Xraw(i,:), varNames);
@@ -114,6 +116,8 @@ for si = 1:numel(scenarios)
         diagPhiLo(i) = y.diag.phi_lo;
         diagTclamped(i) = y.diag.T_clamped;
         diagInvalidOp(i) = y.diag.invalid_op;
+        invalidMarginWorst(i) = y.invalid_margin_worst;
+        TclampPen(i) = y.T_clamp_pen;
     end
 
     dataVarNames = [varNames, "TSFC_cruise","phi_crit","MT_worst","MF_worst","runtime_s"];
@@ -124,6 +128,14 @@ for si = 1:numel(scenarios)
     mor = morris_analyze(Xn_all, Y, k, r, delta);
 
     plot_morris_bars(mor.mu_star(:,1), varNames, "Morris \\mu^* (TSFC)", fullfile(scenDir, "morris_mu_TSFC_" + caseTag + ".png"));
+    tsfcRange = max(Y(:,1)) - min(Y(:,1));
+    if tsfcRange <= eps
+        muStarTsfcRel = zeros(size(mor.mu_star(:,1)));
+    else
+        muStarTsfcRel = mor.mu_star(:,1) ./ tsfcRange;
+    end
+    plot_morris_bars(muStarTsfcRel, varNames, "Morris relative \\mu^* (TSFC/range)", ...
+        fullfile(scenDir, "morris_mu_TSFC_rel_" + caseTag + ".png"), "\\mu^*/range");
     plot_morris_bars(mor.mu_star(:,3), varNames, "Morris \\mu^* (MT margin)", fullfile(scenDir, "morris_mu_MT_" + caseTag + ".png"));
 
     plot_morris_scatter(mor.mu_star(:,1), mor.sigma(:,1), varNames, ...
@@ -153,6 +165,8 @@ for si = 1:numel(scenarios)
     fprintf("Avg invalid operating-point fraction: %.3f\n", mean(invalidFrac));
     fprintf("Diagnostics avg: phi_hi=%.3f, phi_lo=%.3f, T_clamped=%.3f, invalid_op=%.3f\n", ...
         mean(diagPhiHi), mean(diagPhiLo), mean(diagTclamped), mean(diagInvalidOp));
+    fprintf("Avg invalid_margin_worst: %.3f K\n", mean(invalidMarginWorst));
+    fprintf("Avg T_clamp_pen: %.3f K\n", mean(TclampPen));
     disp(R);
 
     results.(caseTag).dataset = T;

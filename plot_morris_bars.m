@@ -1,4 +1,8 @@
-function plot_morris_bars(mu_star, varNames, ttl, outPng)
+function plot_morris_bars(mu_star, varNames, ttl, outPng, yLabel)
+if nargin < 5 || strlength(string(yLabel)) == 0
+    yLabel = "\\mu^*";
+end
+
 [vals, idx] = sort(mu_star, 'descend');
 names = varNames(idx);
 
@@ -12,7 +16,7 @@ end
 fig = figure('Visible','off');
 bar(vals*plotScale);
 set(gca,'XTick',1:numel(names),'XTickLabel',names,'XTickLabelRotation',45);
-ylabel("\\mu^*" + unitTag); title(ttl);
+ylabel(string(yLabel) + unitTag); title(ttl);
 grid on;
 set(fig,'Position',[100 100 1100 450]);
 exportgraphics(fig, outPng, 'Resolution', 200);

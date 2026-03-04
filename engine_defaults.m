@@ -40,7 +40,7 @@ opts.fr_cool_base = 0.02;
 opts.Cv19 = 0.985;
 opts.Cv9 = 0.983;
 
-% Cooling constants
+% Cooling constants (floor/ceil retained for reporting + soft penalties; no hard clamp)
 opts.Cd = 0.80;               % fallback if des.Cd is not provided
 opts.alpha = 45;                % deg, fallback if des.alpha is not provided
 opts.T_allow = 1100;            % K
@@ -59,6 +59,9 @@ opts.gamma = 10.0;
 opts.P_solver = 0;
 opts.TSFC_bad = 1e-3;          % penalty TSFC for invalid points
 opts.MT_bad = 1e3;              % penalty overshoot above T_allow [K]
+opts.invalid_pen_scale = 1.0;   % scaling for continuous solver-invalid penalty
+opts.Tmin_cycle = 200;          % minimum physically-valid turbine temperature [K]
+opts.T_clamp_bad = 1e3;         % large penalty when Tmax is non-finite
 
 if nargin >= 1 && ~isempty(overrides)
     f = fieldnames(overrides);

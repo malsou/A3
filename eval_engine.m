@@ -39,6 +39,8 @@ phiSatHi = false(n,1);
 phiSatLo = false(n,1);
 Tclamped = false(n,1);
 invalidOp = false(n,1);
+invalidMargin = zeros(n,1);
+TclampPen = zeros(n,1);
 solverPenalty = opts.P_solver;
 
 for i = 1:n
@@ -48,12 +50,23 @@ for i = 1:n
     phiSatLo(i) = abs(phi(i) - opts.phi_bounds(1)) <= 1e-12;
     Tclamped(i) = (Tmax(i) <= opts.Tmetal_floor + eps) || (Tmax(i) >= opts.Tmetal_ceil - eps);
 
+    if ~isfinite(Tmax(i)) || ~isreal(Tmax(i))
+        Tmax(i) = opts.T_allow + opts.MT_bad;
+        TclampPen(i) = opts.T_clamp_bad;
+        Tclamped(i) = true;
+    else
+        TclampPen(i) = max(0, opts.Tmetal_floor - Tmax(i)) + max(0, Tmax(i) - opts.Tmetal_ceil);
+        Tclamped(i) = TclampPen(i) > 0;
+    end
+
     % Coupled turbine efficiency from coolant fraction
     eta_pt = opts.eta_t_uncooled - opts.eta_pt_penalty_c * phi(i);
     eta_pt = clamp(eta_pt, opts.eta_pt_bounds(1), opts.eta_pt_bounds(2));
 
     cyc = run_cycle_point(des, atm, op(i).M0, eta_pc, eta_pt, phi(i), opts);
+    invalidMargin(i) = cyc.invalid_margin;
 
+    Fspec(i) = max(cyc.Fspec_net, 1e-6); % N per (kg/s core)
     if ~cyc.valid
         solverPenalty = max(solverPenalty, 1);
         TSFC(i) = opts.TSFC_bad;
@@ -63,7 +76,6 @@ for i = 1:n
         continue;
     end
 
-    Fspec(i) = cyc.Fspec_net; % N per (kg/s core)
     TSFC(i) = cyc.TSFC * nozFactor_TSFC;
     invalidOp(i) = ~isfinite(TSFC(i)) || ~isfinite(Tmax(i)) || (Fspec(i) <= 0);
     if invalidOp(i)
@@ -88,6 +100,8 @@ y.TSFC_cruise = TSFC(end);
 y.phi_crit = max(phi);
 y.MT_worst = min(MT);
 y.MF_worst = min(MF);
+y.invalid_margin_worst = min(invalidMargin);
+y.T_clamp_pen = max(TclampPen);
 y.phi_sat_hi_frac = mean(phiSatHi);
 y.phi_sat_lo_frac = mean(phiSatLo);
 y.invalid_frac = mean(invalidOp);
@@ -106,8 +120,12 @@ if (~isreal(y.TSFC_cruise) || ~isreal(y.phi_crit) || ~isreal(y.MT_worst) || ~isr
     y.phi_crit = opts.phi_bounds(2);
     y.MT_worst = -opts.MT_bad;
     y.MF_worst = -1;
-    y.P_solver = 1;
+    y.invalid_margin_worst = -opts.Tmin_cycle;
+    y.T_clamp_pen = opts.T_clamp_bad;
+    y.P_solver = opts.invalid_pen_scale;
     y.invalid_frac = 1;
+    y.diag.invalid_op = 1;
+    y.diag.T_clamped = 1;
     y.J = y.TSFC_cruise;
     y.P = max(0,-y.MF_worst) + opts.beta*max(0,-y.MT_worst/opts.Tscale) + opts.gamma*y.P_solver;
 end
@@ -119,6 +137,7 @@ function cyc = run_cycle_point(des, atm, M0, eta_pc, eta_pt, phi, opts)
 
 gc = opts.gamma_cold; gh = opts.gamma_hot;
 cpc = opts.cp_cold; cph = opts.cp_hot; R = opts.R;
+Tmin = opts.Tmin_cycle;
 
 Ts0 = atm.T; Ps0 = atm.P;
 Tt0 = Ts0*(1 + (gc-1)/2*M0^2);
@@ -157,10 +176,11 @@ m4 = m31*(1+f);
 % HPT drives compressor
 Tt49a = des.Tt4 - Wcomp/(m4*cph);
 Tt49i = des.Tt4 - (des.Tt4 - Tt49a)/eta_pt;
+margin49 = min([Tt49a-Tmin, Tt49i-Tmin]);
 
-Tmin = 200;
 if (Tt49a <= Tmin) || (Tt49i <= Tmin)
-    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt3,'valid',false);
+    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt3, ...
+        'valid',false,'invalid_margin',margin49);
     return;
 end
 
@@ -176,8 +196,10 @@ Pt495 = Pt49;
 % LPT drives fan
 Tt50a = Tt495 - Wfan/(m495*cph);
 Tt50i = Tt495 - (Tt495 - Tt50a)/eta_pt;
+margin = min([margin49, Tt50a-Tmin, Tt50i-Tmin]);
 if (Tt50a <= Tmin) || (Tt50i <= Tmin)
-    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt495,'valid',false);
+    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt495, ...
+        'valid',false,'invalid_margin',margin);
     return;
 end
 Pt50 = Pt495*(Tt50i/Tt495)^(gh/(gh-1));
@@ -195,9 +217,11 @@ Fspec = max(Fspec, 1e-6);
 mf_over_m2 = f*m31;
 TSFC = mf_over_m2 / Fspec; % kg/(N-s)
 if ~isreal(Fspec) || ~isreal(TSFC) || ~isfinite(Fspec) || ~isfinite(TSFC)
-    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt495,'valid',false);
+    cyc = struct('Fspec_net',1e-6,'TSFC',1e-3,'Tt3',Tt3,'Tt495',Tt495, ...
+        'valid',false,'invalid_margin',-Tmin);
 else
-    cyc = struct('Fspec_net',real(Fspec),'TSFC',real(TSFC),'Tt3',Tt3,'Tt495',Tt495,'valid',true);
+    cyc = struct('Fspec_net',real(Fspec),'TSFC',real(TSFC),'Tt3',Tt3,'Tt495',Tt495, ...
+        'valid',true,'invalid_margin',margin);
 end
 end
 
@@ -236,7 +260,6 @@ phi = clamp(phi_req + 0.003, opts.phi_bounds(1), opts.phi_bounds(2));
 Tmax = 980 + 0.55*(des.Tt4 - 1450) ...
     - opts.phi_scale*phi*(0.6 + 0.4*eta_film)*hScale ...
     - 0.35*(des.tTBC - 100);
-Tmax = clamp(Tmax, opts.Tmetal_floor, opts.Tmetal_ceil);
 end
 
 function OPR = OPR_from_des(des)
